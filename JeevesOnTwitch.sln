@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.6.33815.320
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9092AA53-FB77-4645-B42D-1CCCA6BD08BD}") = "JeevesOnTwitch", "JeevesOnTwitch.njsproj", "{AEAB68FA-21AF-4198-BD08-9B6F8531855A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{AEAB68FA-21AF-4198-BD08-9B6F8531855A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AEAB68FA-21AF-4198-BD08-9B6F8531855A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AEAB68FA-21AF-4198-BD08-9B6F8531855A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AEAB68FA-21AF-4198-BD08-9B6F8531855A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {4081DD39-29BF-4B01-BB84-0347D3357B69}
+	EndGlobalSection
+EndGlobal
