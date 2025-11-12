@@ -41,6 +41,7 @@
   </ItemGroup>
   <ItemGroup>
     <TypeScriptCompile Include="Objects\TextCommand.ts" />
+    <TypeScriptCompile Include="utils.ts" />
   </ItemGroup>
   <Import Project="$(VSToolsPath)\Node.js Tools\Microsoft.NodejsToolsV2.targets" />
   <ProjectExtensions>

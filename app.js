@@ -22,6 +22,13 @@ const CHAT_CHANNEL_USER_ID = SECRETS.CHAT_CHANNEL_USER_ID;
 const EVENTSUB_WEBSOCKET_URL = 'wss://eventsub.wss.twitch.tv/ws';
 var websocketSessionID;
 var textCommands = text_commands_json_1.default;
+var gambaQuestion;
+var gambaState = "NONE";
+var gambaOptions = [];
+var activeGambaData;
+const gambaStateNone = "NONE";
+const gambaStateInitialized = "INITIALIZED";
+const gambaStateRunning = "RUNNING";
 ///IRC
 const nick = "ThisCouldBeAnything";
 const ircSocket = new ws_1.default("wss://irc-ws.chat.twitch.tv:443");
@@ -33,13 +40,74 @@ ircSocket.addEventListener('open', () => {
 });
 ircSocket.addEventListener('message', event => {
     console.log(event.data); //Check to see if the message was "HeyGuys"
-    var chatMessage = getChatMessageFromIrcMessage(event.data.toString());
+    var chatMessageOrig = getChatMessageFromIrcMessage(event.data.toString());
+    var chatMessage = chatMessageOrig.toLowerCase();
+    //Do not respond to own messages
     //Handle Ping
     if (event.data.toString().includes("PING")) {
         ircSocket.send("PONG");
     }
+    //Gamba
+    if (chatMessage.includes("!gamba")) {
+        //Start Gamba
+        //Cannot run gamba if one is already running
+        if (gambaState == gambaStateRunning) {
+            sendChatMessage("Gamba already in progress");
+            return;
+        }
+        const parts = chatMessageOrig.split("!gamba", 2);
+        if (parts.length < 2) {
+            sendChatMessage("Syntax: !+gamba [question]");
+            return;
+        }
+        gambaQuestion = parts[1].trim();
+        gambaState = gambaStateInitialized;
+        gambaOptions = [];
+        sendChatMessage(`/pin Gamba initialized: ${gambaQuestion}. !+add to add options.`);
+    }
+    if (chatMessage.includes("!add")) {
+        //Only allow options to be added if gamba is in INITIALIZED state
+        if (gambaState != gambaStateInitialized) {
+            sendChatMessage("Cannot add gamba option. There may be a gamba already running, or potentially a question hasn't been submitted");
+            return;
+        }
+        //Add option to gamba or poll
+        const parts = chatMessageOrig.split("!add", 2);
+        if (parts.length < 2) {
+            sendChatMessage("Syntax: !+add [poll/gamba option]");
+            return;
+        }
+        gambaOptions.push(parts[1]);
+        sendChatMessage(`Current gamba options: ${gambaOptions.toString()}`);
+    }
+    if (chatMessage.includes("!start")) {
+        //Start gamba or poll
+        createPrediction(gambaQuestion, gambaOptions);
+        //placeholder until can start gamba
+        sendChatMessage(`${gambaQuestion}: ${gambaOptions.toString()}`);
+        gambaState = "RUNNING";
+    }
+    if (chatMessage.includes("!payout")) {
+        if (gambaState != "RUNNING") {
+            sendChatMessage("Gamba must currently be running to payout an option");
+            return;
+        }
+        const parts = chatMessageOrig.split("!payout", 2);
+        if (parts.length < 2) {
+            sendChatMessage("Syntax: !+payout [gamba option]");
+            return;
+        }
+        let gambaOptionId = getGambaOptionIdByName(parts[1]);
+        if (gambaOptionId == null) {
+            sendChatMessage(`Could not find option ${parts[1]}`);
+            return;
+        }
+        payoutPrediction(gambaOptionId);
+        gambaState = gambaStateNone;
+    }
+    //Handle Text Commands
     for (const [commandName, commandOutput] of Object.entries(text_commands_json_1.default)) {
-        if (chatMessage.includes(commandName)) {
+        if (chatMessage.includes(commandName.toLowerCase())) {
             sendChatMessage(commandOutput);
         }
     }
@@ -50,7 +118,10 @@ function sendChatMessage(chatMessage) {
 function getChatMessageFromIrcMessage(ircMessage) {
     //: its_fenix_!its_fenix_ @its_fenix_.tmi.twitch.tv PRIVMSG #its_fenix_ : testnessage
     const parts = ircMessage.split(' :', 2); // Split into max 3 parts
-    return parts[1].trim().trim();
+    if (parts.length < 2) {
+        return '';
+    }
+    return parts[1].trim();
 }
 ///PUBSUB
 //Entry point
@@ -114,6 +185,13 @@ function handleWebSocketMessage(data) {
 }
 function registerEventSubListeners() {
     return __awaiter(this, void 0, void 0, function* () {
+        registerEventSubListener("stream.online");
+        registerEventSubListener("channel.prediction.begin");
+        registerEventSubListener("channel.prediction.end");
+    });
+}
+function registerEventSubListener(eventType) {
+    return __awaiter(this, void 0, void 0, function* () {
         // Register channel.chat.message
         let response = yield fetch('https://api.twitch.tv/helix/eventsub/subscriptions', {
             method: 'POST',
@@ -123,7 +201,7 @@ function registerEventSubListeners() {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify({
-                type: 'stream.online',
+                type: eventType,
                 version: '1',
                 condition: {
                     broadcaster_user_id: CHAT_CHANNEL_USER_ID,
@@ -137,14 +215,65 @@ function registerEventSubListeners() {
         });
         if (response.status != 202) {
             let data = yield response.json();
-            console.error("Failed to subscribe to channel.chat.message. API call returned status code " + response.status + "; body = " + response.body);
+            console.error(`Failed to subscribe to ${eventType}. API call returned status code ${response.status}; body = ${response.body}`);
             console.error(data);
             process.exit(1);
         }
         else {
             const data = yield response.json();
-            console.log(`Subscribed to channel.chat.message [${data.data[0].id}]`);
+            console.log(`Subscribed to ${eventType} [${data.data[0].id}]`);
         }
     });
+}
+function createPrediction(question, options, time = 120) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let formattedOptions = options.map(o => ({ title: o }));
+        let jsonBody = JSON.stringify({
+            'broadcaster_id': CHAT_CHANNEL_USER_ID,
+            'title': question,
+            'outcomes': formattedOptions,
+            'prediction_window': time
+        });
+        console.log(jsonBody);
+        let response = yield fetch("https://api.twitch.tv/helix/predictions", {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + OAUTH_TOKEN,
+                'Client-Id': CLIENT_ID,
+                'Content-Type': 'application/json'
+            },
+            body: jsonBody
+        });
+        let data = yield response.json();
+        if (response.status != 200) {
+            console.error(`Failed to start prediction. Status code ${response.status}; body = ${response.body}`);
+            sendChatMessage("Couldn't start gamba. Make sure one isn't already running");
+            return;
+        }
+        activeGambaData = data.data[0];
+    });
+}
+function payoutPrediction(option) {
+    return __awaiter(this, void 0, void 0, function* () {
+        let response = yield fetch(`https://api.twitch.tv/helix/predictions`
+            + `?broadcaster_id=${activeGambaData.broadcaster_id}`
+            + `&id=${activeGambaData.id}`
+            + `&status=RESOLVED`
+            + `&winning_outcome_id=${option}`, {
+            method: 'PATCH',
+            headers: {
+                'Authorization': 'Bearer ' + OAUTH_TOKEN,
+                'Client-Id': CLIENT_ID
+            }
+        });
+        let data = yield response.json();
+    });
+}
+function getGambaOptionIdByName(option) {
+    const outcome = activeGambaData.outcomes.find(outcome => outcome.title === option);
+    if (!outcome) {
+        return null;
+    }
+    return outcome.id;
 }
 //# sourceMappingURL=app.js.map
